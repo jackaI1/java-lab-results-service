@@ -1,6 +1,6 @@
 # Lab results service
 
-I built a small service for lab measurements because I wanted a way to correct a reading without losing the original value. It keeps the latest result, who changed it and why, and every earlier version together. I can keep those records in PostgreSQL or MySQL, using the same requests and history rules. I use invented patient and sample identifiers throughout.
+I built a small service for lab measurements because I wanted a way to correct a reading without losing the original value. It keeps the latest result, who changed it and why, and every earlier version together. A database keeps the records after the service stops. I can use either PostgreSQL or MySQL, two database programs, with the same requests and history rules. I use invented patient and sample identifiers throughout.
 
 There is no screen to click through. I send it JSON, a plain text format for named values, with commands like the ones below. A reader can look up measurements and their history. A technician can also record a measurement or correct one. I can export a result in FHIR, a standard format for exchanging health records.
 
