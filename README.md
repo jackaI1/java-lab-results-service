@@ -1,6 +1,6 @@
 # Lab results service
 
-I built a small service for lab measurements because I wanted a way to correct a reading without losing the original value. It keeps the latest result, who changed it and why, and every earlier version together. I use invented patient and sample identifiers throughout.
+I built a small service for lab measurements because I wanted a way to correct a reading without losing the original value. It keeps the latest result, who changed it and why, and every earlier version together. I can keep those records in PostgreSQL or MySQL, using the same requests and history rules. I use invented patient and sample identifiers throughout.
 
 There is no screen to click through. I send it JSON, a plain text format for named values, with commands like the ones below. A reader can look up measurements and their history. A technician can also record a measurement or correct one. I can export a result in FHIR, a standard format for exchanging health records.
 
@@ -17,6 +17,24 @@ docker compose up --build --wait
 ```
 
 The first build downloads dependencies and may take a few minutes. The script exercises recording, reading, correction, history and export, including requests that should be refused. The service listens at `http://127.0.0.1:8080`. Compose loads one synthetic glucose result with ID `11111111-1111-4111-8111-111111111111`.
+
+## Choose MySQL instead
+
+I added a second database option so I can run the same measurement workflow where MySQL is already available. PostgreSQL remains the default. For a separate MySQL 8.4 demo, I use the same setup script and add an override file, which replaces the database container and selects the matching app settings:
+
+```sh
+./scripts/setup-demo.sh
+docker compose -p lab-mysql -f compose.yaml -f compose.mysql.yaml up --build --wait
+./scripts/demo.sh
+```
+
+Stop the PostgreSQL demo first if it uses port 8080. Both options load the same invented example and accept all the commands below. Each keeps its own database volume. To stop MySQL while keeping its records:
+
+```sh
+docker compose -p lab-mysql -f compose.yaml -f compose.mysql.yaml down
+```
+
+Add `-v` to that last command only when I want to erase the MySQL demo. Switching options selects a different database; it does not transfer existing records between databases.
 
 ## Read and correct a result
 
@@ -78,13 +96,25 @@ docker compose down       # stop; keep the measurements
 docker compose down -v    # stop and erase this demo's database
 ```
 
-If port 8080 is occupied, use `APP_PORT=18080 docker compose up --build --wait`, then `APP_PORT=18080 ./scripts/demo.sh`. Use that port in the curl commands too. If the build cannot connect to Docker, start the Docker engine first. Keep `.env` while keeping the database volume: generating new database credentials does not change an existing PostgreSQL password.
+If port 8080 is occupied, use `APP_PORT=18080 docker compose up --build --wait`, then `APP_PORT=18080 ./scripts/demo.sh`. Use that port in the curl commands too. If the build cannot connect to Docker, start the Docker engine first. Keep `.env` while keeping the database volume: generating new database credentials does not change an existing database password.
 
 ## How I put it together
 
-I use Java 21 and Spring Boot for the REST API, an interface built around HTTP requests. Spring Security checks the reader and technician roles on each request. PostgreSQL stores the results, and Flyway applies numbered SQL migrations so the database structure is reproducible.
+I use Java 21 and Spring Boot for the REST API, an interface built around HTTP requests. Spring Security checks the reader and technician roles on each request. PostgreSQL or MySQL stores the results. Flyway applies numbered SQL migrations, the files that create and update the database structure. Each database has its own SQL files.
 
-`ResultService` uses Spring JDBC to run SQL directly. A correction updates the current value only when the expected revision matches, then adds a complete audit snapshot in the same transaction. If storing the history fails, the value change rolls back. A database trigger rejects updates and deletes of history entries. HAPI FHIR serializes the current result as an R4 Observation with its test, quantity, subject and sample identifiers, timestamps and revision.
+`ResultService` uses plain JDBC, Java's database interface, with prepared statements that keep supplied values separate from SQL commands. HikariCP keeps up to five reusable database connections in a pool. Spring binds a pooled connection to each transaction; statements and result sets close after use, and the connection returns to the pool. A correction updates the current value only when the expected revision matches, then adds a complete audit snapshot in the same transaction. If storing the history fails, the value change rolls back. A database trigger rejects updates and deletes of history entries. HAPI FHIR serializes the current result as an R4 Observation with its test, quantity, subject and sample identifiers, timestamps and revision.
+
+The `lab_result` table holds the latest measurement: its ID, invented patient and specimen IDs, test, decimal value, observation time, status, revision and last update time. `result_audit` holds the result ID and revision as a combined key, the account, reason, time and complete JSON snapshot. Both databases enforce value ranges and identifier formats and index recent results by patient and observation time. MySQL uses InnoDB tables for transactions, text UUIDs for IDs, UTC date/time columns with six decimal places, and native JSON snapshots; PostgreSQL keeps its native UUID, time-zone-aware timestamp and JSONB columns.
+
+For an existing database, I create an empty `labresults` database and provide its address and credentials through environment variables. I leave the `demo` profile off so no example rows are inserted:
+
+```sh
+# Set DB_USER, DB_PASSWORD, READER_PASSWORD and TECHNICIAN_PASSWORD locally first.
+SPRING_PROFILES_ACTIVE=mysql DB_URL=jdbc:mysql://localhost:3306/labresults ./mvnw spring-boot:run
+# PostgreSQL: omit SPRING_PROFILES_ACTIVE and use DB_URL=jdbc:postgresql://localhost:5432/labresults
+```
+
+The MySQL profile sets the connection time zone to UTC. I preserve instants when reading and writing timestamps, including when Java runs in a different time zone. The migration account needs table, index and trigger creation permissions for Flyway. MySQL 8.4 enables binary logging by default, so an administrator must also permit trigger creation: the local Compose demo and tests set `log_bin_trust_function_creators=1`. On an existing server I would ask its administrator to choose that setting or run the migrations with an appropriately privileged account, as described in [MySQL's trigger permissions](https://dev.mysql.com/doc/refman/8.4/en/create-trigger.html). A separate restricted runtime account would be a deployment improvement.
 
 I explain the request flow and tradeoffs in [docs/design.md](docs/design.md). The extra synthetic migration runs only with the `demo` profile used by Compose. I keep that profile's database separate from databases created without demo data.
 
@@ -112,4 +142,4 @@ export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
 colima stop --profile lab-results
 ```
 
-JUnit runs 22 tests, including Testcontainers tests that start a real PostgreSQL 17 database and apply the migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback after an audit failure, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs the Maven build and the Compose walkthrough on pull requests and on `main`, then removes its containers and volumes.
+JUnit runs 50 tests: the same 23 integration cases on real PostgreSQL 17 and MySQL 8.4 containers, plus four FHIR tests. Each integration run applies the actual Flyway migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback of both creation and correction after an audit failure, SQL metacharacters, timestamp and decimal precision, returned pool connections, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs separate PostgreSQL and MySQL jobs on pull requests and on `main`. Each packages the app and runs the 11-check Compose walkthrough for its database, then removes its containers and volumes.

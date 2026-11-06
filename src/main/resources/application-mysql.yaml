@@ -1,0 +1,12 @@
+lab:
+  database: mysql
+  migrations: classpath:db/mysql
+  demo-migrations: classpath:db/mysql-demo
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/labresults}
+    hikari:
+      data-source-properties:
+        connectionTimeZone: UTC
+        forceConnectionTimeZoneToSession: true
+        preserveInstants: true

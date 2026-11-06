@@ -1,0 +1,22 @@
+# docker compose -p lab-mysql -f compose.yaml -f compose.mysql.yaml up --build --wait
+services:
+  db:
+    image: mysql:8.4
+    command: [--log-bin-trust-function-creators=1]
+    environment: !override
+      MYSQL_DATABASE: labresults
+      MYSQL_USER: lab
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Run scripts/setup-demo.sh first}
+      MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+    volumes: !override
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql -h 127.0.0.1 -u lab -D labresults -e "SELECT 1"']
+      retries: 40
+    mem_limit: 640m
+  app:
+    environment:
+      SPRING_PROFILES_ACTIVE: mysql,demo
+      DB_URL: jdbc:mysql://db:3306/labresults
+volumes:
+  mysql-data:
