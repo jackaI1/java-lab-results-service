@@ -1,12 +1,12 @@
 package com.jacklai.labresults;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -208,7 +208,7 @@ abstract class ResultStorageContract {
                 .contentType("application/json").content(VALID.replace("SYN-001", patient))).andExpect(status().isBadRequest());
     }
     @Test void rejectsFutureTimeUnknownTestMalformedJsonAndUnknownProperties() throws Exception {
-        for (String body : List.of(VALID.replace("2026-01-15", "2099-01-15"), VALID.replace("GLUCOSE", "UNKNOWN"),
+        for (String body : List.of(VALID.replace("2026-01-15", "2099-01-15"), VALID.replace("GLUCOSE", "UNKNOWN"), VALID.replace("\"GLUCOSE\"", "0"),
                 "{", VALID.replace("\"value\":5.4", "\"value\":5.4,\"unit\":\"wrong\""))) {
             mvc.perform(post("/api/results").with(httpBasic("technician", "test-technician-password"))
                     .contentType("application/json").content(body)).andExpect(status().isBadRequest());

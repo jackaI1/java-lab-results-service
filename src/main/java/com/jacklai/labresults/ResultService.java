@@ -1,7 +1,7 @@
 package com.jacklai.labresults;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.UncategorizedSQLException;
@@ -101,7 +101,7 @@ public class ResultService {
             update("insert into result_audit (result_id, revision, actor, reason, changed_at, snapshot) "
                             + "values (?, ?, ?, ?, ?, " + snapshot + ")", result.id(), result.revision(), actor,
                     reason, Timestamp.from(result.updatedAt()), json.writeValueAsString(result));
-        } catch (JsonProcessingException e) { throw new IllegalStateException("Cannot serialize audit snapshot", e); }
+        } catch (JacksonException e) { throw new IllegalStateException("Cannot serialize audit snapshot", e); }
     }
 
     private int update(String sql, Object... parameters) {
@@ -145,8 +145,8 @@ public class ResultService {
     @FunctionalInterface private interface RowReader<T> { T read(ResultSet rs) throws SQLException; }
     @FunctionalInterface private interface StatementWork<T> { T run(PreparedStatement statement) throws SQLException; }
 
-    private com.fasterxml.jackson.databind.JsonNode parse(String snapshot) {
+    private tools.jackson.databind.JsonNode parse(String snapshot) {
         try { return json.readTree(snapshot); }
-        catch (JsonProcessingException e) { throw new IllegalStateException("Cannot read audit snapshot", e); }
+        catch (JacksonException e) { throw new IllegalStateException("Cannot read audit snapshot", e); }
     }
 }

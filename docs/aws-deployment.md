@@ -42,7 +42,10 @@ circuit breaker with rollback. Logs expire after 14 days.
 
 ## What the free sandbox proves
 
-The exact provider versions and image tags are pinned. No AWS account,
+The exact provider versions and image tags are pinned. The image scan also
+keeps the Java dependencies current: the app uses Spring Boot 4 and Jackson 3,
+while HAPI FHIR retains a separately patched Jackson 2 dependency. The shared
+HTTP tests protect the existing input rules during that upgrade. No AWS account,
 LocalStack token, card or GitHub secret is needed. This intentionally uses
 LocalStack Community 4.12 for IAM, Secrets Manager, STS and CloudWatch Logs, with
 Moto 5.1.17 for EC2, ECS, RDS and ELBv2 API state. Current LocalStack ECS and RDS
