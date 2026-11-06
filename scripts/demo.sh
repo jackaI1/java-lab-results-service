@@ -2,7 +2,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 set -a
-. ./.env
+if [ -e .env ]; then . ./.env; fi
 set +a
 python3 - <<'PY'
 import base64
@@ -10,6 +10,10 @@ import json
 import os
 import urllib.error
 import urllib.request
+
+if os.environ.get('SMOKE_ENV_FILE'):
+    with open(os.environ['SMOKE_ENV_FILE']) as file:
+        os.environ.update(json.load(file))
 
 base = os.environ.get('BASE_URL', 'http://127.0.0.1:' + os.environ.get('APP_PORT', '8080'))
 checks = 0
@@ -38,8 +42,9 @@ def request(method, path, role=None, body=None, expected=200):
 
 request('GET', '/health')
 request('GET', '/api/results', expected=401)
-seed, _ = request('GET', '/api/results/11111111-1111-4111-8111-111111111111', 'reader')
-assert seed['patientId'] == 'SYN-DEMO-001'
+if not os.environ.get('SMOKE_ENV_FILE'):
+    seed, _ = request('GET', '/api/results/11111111-1111-4111-8111-111111111111', 'reader')
+    assert seed['patientId'] == 'SYN-DEMO-001'
 result, _ = request('POST', '/api/results', 'technician', {
     'patientId': 'SYN-DEMO-002', 'specimenId': 'LAB-DEMO-002', 'test': 'POTASSIUM',
     'value': 4.1, 'observedAt': '2026-01-15T10:30:00Z'}, 201)

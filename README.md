@@ -1,6 +1,6 @@
 # Lab results service
 
-I built a small service for lab measurements because I wanted a way to correct a reading without losing the original value. It keeps the latest result, who changed it and why, and every earlier version together. A database keeps the records after the service stops. I can use either PostgreSQL or MySQL, two database programs, with the same requests and history rules. I use invented patient and sample identifiers throughout.
+I built a small service for lab measurements because I wanted a way to correct a reading without losing the original value. It keeps the latest result, who changed it and why, and every earlier version together. A database keeps the records after the service stops. I can use PostgreSQL, MySQL or SQL Server, three database programs, with the same requests and history rules. I use invented patient and sample identifiers throughout.
 
 There is no screen to click through. I send it JSON, a plain text format for named values, with commands like the ones below. A reader can look up measurements and their history. A technician can also record a measurement or correct one. I can export a result in FHIR, a standard format for exchanging health records.
 
@@ -35,6 +35,34 @@ docker compose -p lab-mysql -f compose.yaml -f compose.mysql.yaml down
 ```
 
 Add `-v` to that last command only when I want to erase the MySQL demo. Switching options selects a different database; it does not transfer existing records between databases.
+
+## Choose SQL Server instead
+
+I can also run the same workflow on Microsoft SQL Server. On a Linux x86-64 computer with a Docker engine and at least 2 GB available for the database, I use:
+
+```sh
+./scripts/setup-demo.sh
+docker compose -p lab-sqlserver -f compose.yaml -f compose.sqlserver.yaml up --build --wait
+./scripts/demo.sh
+docker compose -p lab-sqlserver -f compose.yaml -f compose.sqlserver.yaml down
+```
+
+This disposable demo uses SQL Server's `master` database and administrator account for simplicity. The SQL Server image requires accepting Microsoft's license, which the Compose file does. Add `-v` to the final command only to erase the demo data. For an existing server, create a separate database and account, set `SPRING_PROFILES_ACTIVE=sqlserver`, and supply `DB_URL`, `DB_USER`, `DB_PASSWORD`, `READER_PASSWORD`, and `TECHNICIAN_PASSWORD`. Use a trusted TLS certificate instead of the demo's `trustServerCertificate` setting.
+
+## Practice a cloud deployment
+
+I added a repeatable cloud setup because I wanted to learn how to run the same
+service beyond my local database demo. GitHub Actions builds and scans the app,
+creates the AWS-shaped infrastructure in a free sandbox, then records and
+corrects a measurement through its HTTP entry point. No paid AWS account is
+needed. I can run it from the repository's **Actions** tab by opening the latest
+**Maven and Compose** run and its **deploy-aws-sandbox** job.
+
+The sandbox uses LocalStack and Moto to test the cloud setup, with real app and
+PostgreSQL containers and a local forwarding server. It does not run managed
+AWS services. The [deployment guide](docs/aws-deployment.md) explains the
+architecture, exact Linux commands, what is tested, and how I would move it to
+an AWS staging account with HTTPS, a private database and stored passwords.
 
 ## Read and correct a result
 
@@ -100,11 +128,11 @@ If port 8080 is occupied, use `APP_PORT=18080 docker compose up --build --wait`,
 
 ## How I put it together
 
-I use Java 21 and Spring Boot for the REST API, an interface built around HTTP requests. Spring Security checks the reader and technician roles on each request. PostgreSQL or MySQL stores the results. Flyway applies numbered SQL migrations, the files that create and update the database structure. Each database has its own SQL files.
+I use Java 21 and Spring Boot for the REST API, an interface built around HTTP requests. Spring Security checks the reader and technician roles on each request. PostgreSQL, MySQL or SQL Server stores the results. Flyway applies numbered SQL migrations, the files that create and update the database structure. Each database has its own SQL files.
 
 `ResultService` uses plain JDBC, Java's database interface, with prepared statements that keep supplied values separate from SQL commands. HikariCP keeps up to five reusable database connections in a pool. Spring binds a pooled connection to each transaction; statements and result sets close after use, and the connection returns to the pool. A correction updates the current value only when the expected revision matches, then adds a complete audit snapshot in the same transaction. If storing the history fails, the value change rolls back. A database trigger rejects updates and deletes of history entries. HAPI FHIR serializes the current result as an R4 Observation with its test, quantity, subject and sample identifiers, timestamps and revision.
 
-The `lab_result` table holds the latest measurement: its ID, invented patient and specimen IDs, test, decimal value, observation time, status, revision and last update time. `result_audit` holds the result ID and revision as a combined key, the account, reason, time and complete JSON snapshot. Both databases enforce value ranges and identifier formats and index recent results by patient and observation time. MySQL uses InnoDB tables for transactions, text UUIDs for IDs, UTC date/time columns with six decimal places, and native JSON snapshots; PostgreSQL keeps its native UUID, time-zone-aware timestamp and JSONB columns.
+The `lab_result` table holds the latest measurement: its ID, invented patient and specimen IDs, test, decimal value, observation time, status, revision and last update time. `result_audit` holds the result ID and revision as a combined key, the account, reason, time and complete JSON snapshot. All three databases enforce value ranges and identifier formats and index recent results by patient and observation time. MySQL uses InnoDB tables for transactions, text UUIDs for IDs, UTC date/time columns with six decimal places, and native JSON snapshots; PostgreSQL keeps its native UUID, time-zone-aware timestamp and JSONB columns.
 
 For an existing database, I create an empty `labresults` database and provide its address and credentials through environment variables. I leave the `demo` profile off so no example rows are inserted:
 
@@ -113,6 +141,8 @@ For an existing database, I create an empty `labresults` database and provide it
 SPRING_PROFILES_ACTIVE=mysql DB_URL=jdbc:mysql://localhost:3306/labresults ./mvnw spring-boot:run
 # PostgreSQL: omit SPRING_PROFILES_ACTIVE and use DB_URL=jdbc:postgresql://localhost:5432/labresults
 ```
+
+SQL Server uses `uniqueidentifier`, UTC `datetime2` and JSON-validated text. Its parameterized `revise_result` stored procedure checks the revision before updating; the service inserts the audit snapshot in the same transaction. A trigger blocks changes to history. Unlike PostgreSQL, SQL Server uses `OFFSET ... FETCH` for bounded lists and stores JSON as text.
 
 The MySQL profile sets the connection time zone to UTC. I preserve instants when reading and writing timestamps, including when Java runs in a different time zone. The migration account needs table, index and trigger creation permissions for Flyway. MySQL 8.4 enables binary logging by default, so an administrator must also permit trigger creation: the local Compose demo and tests set `log_bin_trust_function_creators=1`. On an existing server I would ask its administrator to choose that setting or run the migrations with an appropriately privileged account, as described in [MySQL's trigger permissions](https://dev.mysql.com/doc/refman/8.4/en/create-trigger.html). A separate restricted runtime account would be a deployment improvement.
 
@@ -132,14 +162,14 @@ For development I need a Java 21 JDK and a running Docker engine. The Maven wrap
 ./mvnw -B verify
 ```
 
-On macOS I can use a dedicated Colima profile. The explicit socket keeps the tests pointed at that profile:
+I run container checks on GitHub's Linux runners to keep build images off my
+Mac. For a small local check with Java 21 and no Docker, I use
+`./mvnw -B -Dtest=FhirExporterTest verify`.
 
-```sh
-colima start --profile lab-results --cpu 2 --memory 3 --vm-type vz
-export DOCKER_HOST="unix://$HOME/.colima/lab-results/docker.sock"
-export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
-./mvnw -B verify
-colima stop --profile lab-results
-```
+JUnit runs the same 23 integration cases on PostgreSQL 17, MySQL 8.4 and SQL Server 2022 containers, plus four FHIR tests. Each integration run applies the actual Flyway migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback of both creation and correction after an audit failure, SQL metacharacters, timestamp and decimal precision, returned pool connections, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs separate PostgreSQL, MySQL and SQL Server jobs on pull requests and on `main`. Each packages the app and runs the 11-check Compose walkthrough for its database, then removes its containers and volumes.
 
-JUnit runs 50 tests: the same 23 integration cases on real PostgreSQL 17 and MySQL 8.4 containers, plus four FHIR tests. Each integration run applies the actual Flyway migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback of both creation and correction after an audit failure, SQL metacharacters, timestamp and decimal precision, returned pool connections, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs separate PostgreSQL and MySQL jobs on pull requests and on `main`. Each packages the app and runs the 11-check Compose walkthrough for its database, then removes its containers and volumes.
+The deployment job applies Terraform against LocalStack and Moto, scans the
+exact app image for fixable high and critical vulnerabilities, and runs ten
+HTTP checks through the sandbox forwarding endpoint. Two more checks verify
+that the corrected value and history survive an app restart. See the deployment
+guide for the boundary between this free check and a real AWS deployment.

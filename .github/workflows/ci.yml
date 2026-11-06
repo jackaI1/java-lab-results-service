@@ -1,7 +1,7 @@
 name: Maven and Compose
 on:
   push:
-    branches: [main, 'skills/**']
+    branches: [main]
   pull_request:
     branches: [main]
 permissions:
@@ -22,6 +22,9 @@ jobs:
           - database: mysql
             tests: FhirExporterTest,MySqlIntegrationTest
             compose: -p lab-ci-mysql -f compose.yaml -f compose.mysql.yaml
+          - database: sqlserver
+            tests: FhirExporterTest,SqlServerIntegrationTest
+            compose: -p lab-ci-sqlserver -f compose.yaml -f compose.sqlserver.yaml
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -47,3 +50,43 @@ jobs:
         with:
           name: junit-results-${{ matrix.database }}
           path: target/surefire-reports/*.xml
+  aws-sandbox:
+    name: deploy-aws-sandbox
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      LAB_IMAGE: lab-results:ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.0
+          terraform_wrapper: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install AWS client for deployment assertions
+        run: pip install boto3==1.40.75
+      - name: Build the deployment image
+        run: docker build -t "$LAB_IMAGE" .
+      - name: Scan the exact image before deployment
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: lab-results:ci
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+      - name: Apply AWS infrastructure and exercise deployed runtime
+        run: ./scripts/sandbox.sh
+      - name: Verify cleanup even after an interrupted deployment
+        if: always()
+        run: |
+          if [ -f .sandbox/compose.json ]; then
+            docker compose -p lab-aws-runtime -f .sandbox/compose.json down -v --remove-orphans
+          fi
+          docker compose -p lab-aws-apis -f compose.sandbox.yaml down -v --remove-orphans
+          test -z "$(docker ps -aq --filter label=com.docker.compose.project=lab-aws-runtime)"
+          test -z "$(docker ps -aq --filter label=com.docker.compose.project=lab-aws-apis)"
+          rm -rf .sandbox infra/terraform.tfstate* infra/sandbox.auto.tfvars.json

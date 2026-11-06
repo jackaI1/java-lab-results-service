@@ -1,0 +1,24 @@
+# docker compose -p lab-sqlserver -f compose.yaml -f compose.sqlserver.yaml up --build --wait
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-CU18-ubuntu-22.04
+    environment: !override
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: Lab!${DB_PASSWORD:?Run scripts/setup-demo.sh first}
+    volumes: !override
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: [CMD-SHELL, '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -Q "SELECT 1" -b -o /dev/null']
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    mem_limit: 2g
+  app:
+    environment:
+      SPRING_PROFILES_ACTIVE: sqlserver,demo
+      DB_URL: 'jdbc:sqlserver://db:1433;databaseName=master;encrypt=true;trustServerCertificate=true'
+      DB_USER: sa
+      DB_PASSWORD: Lab!${DB_PASSWORD:?Run scripts/setup-demo.sh first}
+volumes:
+  sqlserver-data:

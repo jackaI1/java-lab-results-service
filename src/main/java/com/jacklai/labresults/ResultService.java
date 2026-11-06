@@ -1,7 +1,7 @@
 package com.jacklai.labresults;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.UncategorizedSQLException;
@@ -24,14 +24,16 @@ public class ResultService {
     private final DataSource pool;
     private final ObjectMapper json;
     private final boolean mysql;
+    private final boolean sqlserver;
 
     ResultService(DataSource pool, ObjectMapper json, @Value("${lab.database:postgresql}") String database) {
         this.pool = pool;
         this.json = json;
-        if (!List.of("postgresql", "mysql").contains(database)) {
+        if (!List.of("postgresql", "mysql", "sqlserver").contains(database)) {
             throw new IllegalArgumentException("Unsupported database profile");
         }
         this.mysql = database.equals("mysql");
+        this.sqlserver = database.equals("sqlserver");
     }
 
     @Transactional
@@ -53,6 +55,10 @@ public class ResultService {
     }
 
     public List<LabResult> list(String patientId, int limit) {
+        if (sqlserver) {
+            if (patientId == null) return query("select * from lab_result order by observed_at desc, id offset 0 rows fetch next ? rows only", this::readResult, limit);
+            return query("select * from lab_result where patient_id = ? order by observed_at desc, id offset 0 rows fetch next ? rows only", this::readResult, patientId, limit);
+        }
         if (patientId == null) {
             return query("select * from lab_result order by observed_at desc, id limit ?", this::readResult, limit);
         }
@@ -63,7 +69,7 @@ public class ResultService {
     @Transactional
     public LabResult correct(UUID id, CorrectionRequest request, String actor) {
         get(id); // Distinguish a missing result (404) from a stale revision (409).
-        int changed = update("""
+        int changed = sqlserver ? query("exec revise_result ?, ?, ?, ?", rs -> rs.getInt(1), id, request.expectedRevision(), request.value(), Timestamp.from(Instant.now())).getFirst() : update("""
                 update lab_result set value = ?, status = 'AMENDED', revision = revision + 1, updated_at = ?
                 where id = ? and revision = ?
                 """, request.value(), Timestamp.from(Instant.now()), id, request.expectedRevision());
@@ -91,11 +97,11 @@ public class ResultService {
 
     private void audit(LabResult result, String actor, String reason) {
         try {
-            String snapshot = mysql ? "cast(? as json)" : "cast(? as jsonb)";
+            String snapshot = sqlserver ? "?" : mysql ? "cast(? as json)" : "cast(? as jsonb)";
             update("insert into result_audit (result_id, revision, actor, reason, changed_at, snapshot) "
                             + "values (?, ?, ?, ?, ?, " + snapshot + ")", result.id(), result.revision(), actor,
                     reason, Timestamp.from(result.updatedAt()), json.writeValueAsString(result));
-        } catch (JsonProcessingException e) { throw new IllegalStateException("Cannot serialize audit snapshot", e); }
+        } catch (JacksonException e) { throw new IllegalStateException("Cannot serialize audit snapshot", e); }
     }
 
     private int update(String sql, Object... parameters) {
@@ -119,7 +125,7 @@ public class ResultService {
             for (int i = 0; i < parameters.length; i++) {
                 Object value = parameters[i];
                 if (value instanceof UUID id) {
-                    if (mysql) statement.setString(i + 1, id.toString());
+                    if (mysql || sqlserver) statement.setString(i + 1, id.toString());
                     else statement.setObject(i + 1, id);
                 } else if (value instanceof Timestamp timestamp) {
                     statement.setTimestamp(i + 1, timestamp, utc());
@@ -139,8 +145,8 @@ public class ResultService {
     @FunctionalInterface private interface RowReader<T> { T read(ResultSet rs) throws SQLException; }
     @FunctionalInterface private interface StatementWork<T> { T run(PreparedStatement statement) throws SQLException; }
 
-    private com.fasterxml.jackson.databind.JsonNode parse(String snapshot) {
+    private tools.jackson.databind.JsonNode parse(String snapshot) {
         try { return json.readTree(snapshot); }
-        catch (JsonProcessingException e) { throw new IllegalStateException("Cannot read audit snapshot", e); }
+        catch (JacksonException e) { throw new IllegalStateException("Cannot read audit snapshot", e); }
     }
 }

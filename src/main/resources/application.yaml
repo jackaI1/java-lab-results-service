@@ -10,7 +10,9 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: true
-      fail-on-numbers-for-enums: true
+    datatype:
+      enum:
+        fail-on-numbers-for-enums: true
   mvc:
     problemdetails:
       enabled: true

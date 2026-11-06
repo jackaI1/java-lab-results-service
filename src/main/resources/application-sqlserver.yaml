@@ -1,0 +1,7 @@
+lab:
+  database: sqlserver
+  migrations: classpath:db/sqlserver
+  demo-migrations: classpath:db/sqlserver-demo
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=master;encrypt=true;trustServerCertificate=true}
