@@ -38,7 +38,7 @@ Add `-v` to that last command only when I want to erase the MySQL demo. Switchin
 
 ## Choose SQL Server instead
 
-I can also run the same workflow on Microsoft SQL Server. On a computer with a Docker engine and at least 2 GB available for the database, I use:
+I can also run the same workflow on Microsoft SQL Server. On a Linux x86-64 computer with a Docker engine and at least 2 GB available for the database, I use:
 
 ```sh
 ./scripts/setup-demo.sh
@@ -166,7 +166,7 @@ I run container checks on GitHub's Linux runners to keep build images off my
 Mac. For a small local check with Java 21 and no Docker, I use
 `./mvnw -B -Dtest=FhirExporterTest verify`.
 
-JUnit runs the same integration cases on PostgreSQL 17, MySQL 8.4 and SQL Server 2022 containers, plus four FHIR tests. Each integration run applies the actual Flyway migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback of both creation and correction after an audit failure, SQL metacharacters, timestamp and decimal precision, returned pool connections, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs separate PostgreSQL, MySQL and SQL Server jobs on pull requests and on `main`. Each packages the app and runs the 11-check Compose walkthrough for its database, then removes its containers and volumes.
+JUnit runs the same 23 integration cases on PostgreSQL 17, MySQL 8.4 and SQL Server 2022 containers, plus four FHIR tests. Each integration run applies the actual Flyway migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback of both creation and correction after an audit failure, SQL metacharacters, timestamp and decimal precision, returned pool connections, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs separate PostgreSQL, MySQL and SQL Server jobs on pull requests and on `main`. Each packages the app and runs the 11-check Compose walkthrough for its database, then removes its containers and volumes.
 
 The deployment job applies Terraform against LocalStack and Moto, scans the
 exact app image for fixable high and critical vulnerabilities, and runs ten

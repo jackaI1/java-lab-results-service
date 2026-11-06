@@ -1,7 +1,7 @@
 name: Maven and Compose
 on:
   push:
-    branches: [main, 'skills/**']
+    branches: [main]
   pull_request:
     branches: [main]
 permissions:
@@ -52,6 +52,7 @@ jobs:
           path: target/surefire-reports/*.xml
   aws-sandbox:
     name: deploy-aws-sandbox
+    needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
