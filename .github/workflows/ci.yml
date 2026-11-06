@@ -22,6 +22,9 @@ jobs:
           - database: mysql
             tests: FhirExporterTest,MySqlIntegrationTest
             compose: -p lab-ci-mysql -f compose.yaml -f compose.mysql.yaml
+          - database: sqlserver
+            tests: FhirExporterTest,SqlServerIntegrationTest
+            compose: -p lab-ci-sqlserver -f compose.yaml -f compose.sqlserver.yaml
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
