@@ -4,3 +4,7 @@
 .idea/
 *.iml
 .DS_Store
+.sandbox/
+infra/.terraform/
+infra/*.tfstate*
+infra/*.tfvars.json

@@ -49,6 +49,21 @@ docker compose -p lab-sqlserver -f compose.yaml -f compose.sqlserver.yaml down
 
 This disposable demo uses SQL Server's `master` database and administrator account for simplicity. The SQL Server image requires accepting Microsoft's license, which the Compose file does. Add `-v` to the final command only to erase the demo data. For an existing server, create a separate database and account, set `SPRING_PROFILES_ACTIVE=sqlserver`, and supply `DB_URL`, `DB_USER`, `DB_PASSWORD`, `READER_PASSWORD`, and `TECHNICIAN_PASSWORD`. Use a trusted TLS certificate instead of the demo's `trustServerCertificate` setting.
 
+## Practice a cloud deployment
+
+I added a repeatable cloud setup because I wanted to learn how to run the same
+service beyond my local database demo. GitHub Actions builds and scans the app,
+creates the AWS-shaped infrastructure in a free sandbox, then records and
+corrects a measurement through its HTTP entry point. No paid AWS account is
+needed. I can run it from the repository's **Actions** tab by opening the latest
+**Maven and Compose** run and its **deploy-aws-sandbox** job.
+
+The sandbox uses LocalStack and Moto to test the cloud setup, with real app and
+PostgreSQL containers and a local forwarding server. It does not run managed
+AWS services. The [deployment guide](docs/aws-deployment.md) explains the
+architecture, exact Linux commands, what is tested, and how I would move it to
+an AWS staging account with HTTPS, a private database and stored passwords.
+
 ## Read and correct a result
 
 The setup script saves randomly generated passwords in `.env`, which Git ignores. These commands load that local file without displaying the passwords:
@@ -117,7 +132,7 @@ I use Java 21 and Spring Boot for the REST API, an interface built around HTTP r
 
 `ResultService` uses plain JDBC, Java's database interface, with prepared statements that keep supplied values separate from SQL commands. HikariCP keeps up to five reusable database connections in a pool. Spring binds a pooled connection to each transaction; statements and result sets close after use, and the connection returns to the pool. A correction updates the current value only when the expected revision matches, then adds a complete audit snapshot in the same transaction. If storing the history fails, the value change rolls back. A database trigger rejects updates and deletes of history entries. HAPI FHIR serializes the current result as an R4 Observation with its test, quantity, subject and sample identifiers, timestamps and revision.
 
-The `lab_result` table holds the latest measurement: its ID, invented patient and specimen IDs, test, decimal value, observation time, status, revision and last update time. `result_audit` holds the result ID and revision as a combined key, the account, reason, time and complete JSON snapshot. Both databases enforce value ranges and identifier formats and index recent results by patient and observation time. MySQL uses InnoDB tables for transactions, text UUIDs for IDs, UTC date/time columns with six decimal places, and native JSON snapshots; PostgreSQL keeps its native UUID, time-zone-aware timestamp and JSONB columns.
+The `lab_result` table holds the latest measurement: its ID, invented patient and specimen IDs, test, decimal value, observation time, status, revision and last update time. `result_audit` holds the result ID and revision as a combined key, the account, reason, time and complete JSON snapshot. All three databases enforce value ranges and identifier formats and index recent results by patient and observation time. MySQL uses InnoDB tables for transactions, text UUIDs for IDs, UTC date/time columns with six decimal places, and native JSON snapshots; PostgreSQL keeps its native UUID, time-zone-aware timestamp and JSONB columns.
 
 For an existing database, I create an empty `labresults` database and provide its address and credentials through environment variables. I leave the `demo` profile off so no example rows are inserted:
 
@@ -147,14 +162,14 @@ For development I need a Java 21 JDK and a running Docker engine. The Maven wrap
 ./mvnw -B verify
 ```
 
-On macOS I can use a dedicated Colima profile. The explicit socket keeps the tests pointed at that profile:
-
-```sh
-colima start --profile lab-results --cpu 2 --memory 3 --vm-type vz
-export DOCKER_HOST="unix://$HOME/.colima/lab-results/docker.sock"
-export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
-./mvnw -B verify
-colima stop --profile lab-results
-```
+I run container checks on GitHub's Linux runners to keep build images off my
+Mac. For a small local check with Java 21 and no Docker, I use
+`./mvnw -B -Dtest=FhirExporterTest verify`.
 
 JUnit runs the same integration cases on PostgreSQL 17, MySQL 8.4 and SQL Server 2022 containers, plus four FHIR tests. Each integration run applies the actual Flyway migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback of both creation and correction after an audit failure, SQL metacharacters, timestamp and decimal precision, returned pool connections, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs separate PostgreSQL, MySQL and SQL Server jobs on pull requests and on `main`. Each packages the app and runs the 11-check Compose walkthrough for its database, then removes its containers and volumes.
+
+The deployment job applies Terraform against LocalStack and Moto, scans the
+exact app image for fixable high and critical vulnerabilities, and runs ten
+HTTP checks through the sandbox forwarding endpoint. Two more checks verify
+that the corrected value and history survive an app restart. See the deployment
+guide for the boundary between this free check and a real AWS deployment.

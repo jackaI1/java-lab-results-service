@@ -1,0 +1,13 @@
+# Free AWS API sandbox. No Docker socket or cloud credentials are exposed.
+services:
+  localstack:
+    image: localstack/localstack:4.12.0
+    environment:
+      SERVICES: iam,secretsmanager,logs,sts
+      AWS_DEFAULT_REGION: us-east-1
+    ports: ['127.0.0.1:4566:4566']
+    mem_limit: 640m
+  moto:
+    image: motoserver/moto:5.1.17
+    ports: ['127.0.0.1:5000:5000']
+    mem_limit: 384m
