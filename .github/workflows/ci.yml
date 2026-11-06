@@ -11,6 +11,17 @@ concurrency:
   cancel-in-progress: true
 jobs:
   verify:
+    name: verify-${{ matrix.database }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - database: postgresql
+            tests: FhirExporterTest,LabResultsIntegrationTest
+            compose: -p lab-ci-pg -f compose.yaml
+          - database: mysql
+            tests: FhirExporterTest,MySqlIntegrationTest
+            compose: -p lab-ci-mysql -f compose.yaml -f compose.mysql.yaml
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -20,19 +31,19 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Test with PostgreSQL containers and package
-        run: ./mvnw -B verify
+      - name: Test with real database container and package
+        run: ./mvnw -B -Duser.timezone=America/Toronto -Dtest=${{ matrix.tests }} verify
       - name: Start synthetic demo
         run: |
           ./scripts/setup-demo.sh
-          docker compose -p lab-ci up --build --wait --wait-timeout 180
+          docker compose ${{ matrix.compose }} up --build --wait --wait-timeout 180
       - name: Exercise HTTP workflow
         run: ./scripts/demo.sh
       - name: Stop demo containers and volumes
         if: always()
-        run: docker compose -p lab-ci down -v --remove-orphans
+        run: docker compose ${{ matrix.compose }} down -v --remove-orphans
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: junit-results
+          name: junit-results-${{ matrix.database }}
           path: target/surefire-reports/*.xml

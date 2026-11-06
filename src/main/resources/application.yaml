@@ -1,4 +1,6 @@
 spring:
+  flyway:
+    locations: ${lab.migrations:classpath:db/migration}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/labresults}
     username: ${DB_USER:lab}
