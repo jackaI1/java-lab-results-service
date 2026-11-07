@@ -1,16 +1,22 @@
-# Lab results service
+I merged this into my existing [lab-assay-lims project](https://github.com/jackaI1/lab-assay-lims/tree/main/projects/java-lab-results-service). The current code is in `projects/java-lab-results-service/` there. I kept the code here so older links still work.
 
-I built a small service for lab measurements because I wanted a way to correct a reading without losing the original value. It keeps the latest result, who changed it and why, and every earlier version together. A database keeps the records after the service stops. I can use PostgreSQL, MySQL or SQL Server, three database programs, with the same requests and history rules. I use invented patient and sample identifiers throughout.
+The move keeps the original layout, including `scripts/sandbox-persistence.py`, `scripts/sandbox.sh`, `scripts/demo.sh`, `scripts/sandbox-render.py`. I replaced the README with the report below and left out Git history, installed dependencies, caches and generated build output from the hub copy.
 
-There is no screen to click through. I send it JSON, a plain text format for named values, with commands like the ones below. A reader can look up measurements and their history. A technician can also record a measurement or correct one. I can export a result in FHIR, a standard format for exchanging health records.
+The project checks are configured in the hub at `.github/workflows/java-lab-results-service-ci.yml`, with commands run from this project folder and changes filtered to its paths.
+
+---
+
+# java-lab-results-service
+
+I built a small service for lab measurements to learn how the underlying idea works. This is a learning project.
+
+The example patient and sample identifiers are invented.
 
 ## Try it locally
 
 I use Docker with Compose to run the service and its database together. Install Docker Desktop or another running Docker engine with the Compose plugin. The walkthrough script also needs Python 3 and OpenSSL, which the setup script uses to generate local passwords.
 
 ```sh
-git clone https://github.com/jackaI1/java-lab-results-service.git
-cd java-lab-results-service
 ./scripts/setup-demo.sh
 docker compose up --build --wait
 ./scripts/demo.sh
@@ -51,59 +57,11 @@ This disposable demo uses SQL Server's `master` database and administrator accou
 
 ## Practice a cloud deployment
 
-I added a repeatable cloud setup because I wanted to learn how to run the same
-service beyond my local database demo. GitHub Actions builds and scans the app,
-creates the AWS-shaped infrastructure in a free sandbox, then records and
-corrects a measurement through its HTTP entry point. No paid AWS account is
-needed. I can run it from the repository's **Actions** tab by opening the latest
-**Maven and Compose** run and its **deploy-aws-sandbox** job.
-
 The sandbox uses LocalStack and Moto to test the cloud setup, with real app and
 PostgreSQL containers and a local forwarding server. It does not run managed
 AWS services. The [deployment guide](docs/aws-deployment.md) explains the
 architecture, exact Linux commands, what is tested, and how I would move it to
 an AWS staging account with HTTPS, a private database and stored passwords.
-
-## Read and correct a result
-
-The setup script saves randomly generated passwords in `.env`, which Git ignores. These commands load that local file without displaying the passwords:
-
-```sh
-set -a
-. ./.env
-set +a
-
-curl --fail-with-body -u "reader:$READER_PASSWORD" \
-  http://127.0.0.1:8080/api/results/11111111-1111-4111-8111-111111111111
-```
-
-A result includes a `revision`, its version number. I send the version I just read with a correction so an older copy cannot overwrite someone else's change:
-
-```sh
-curl --fail-with-body -u "technician:$TECHNICIAN_PASSWORD" \
-  -H 'Content-Type: application/json' \
-  -d '{"expectedRevision":1,"value":5.9,"reason":"Rechecked synthetic instrument reading"}' \
-  http://127.0.0.1:8080/api/results/11111111-1111-4111-8111-111111111111/corrections
-
-curl --fail-with-body -u "reader:$READER_PASSWORD" \
-  http://127.0.0.1:8080/api/results/11111111-1111-4111-8111-111111111111/history
-
-curl --fail-with-body -u "reader:$READER_PASSWORD" \
-  http://127.0.0.1:8080/api/results/11111111-1111-4111-8111-111111111111/fhir
-```
-
-The history keeps the original 5.4 and the corrected 5.9, along with the account, reason and time. Repeating that correction returns `409 Conflict`; read the latest revision before changing it again. The export reflects the current value and marks a corrected result as amended.
-
-To add a separate result:
-
-```sh
-curl --fail-with-body -u "technician:$TECHNICIAN_PASSWORD" \
-  -H 'Content-Type: application/json' \
-  -d '{"patientId":"SYN-002","specimenId":"LAB-002","test":"POTASSIUM","value":4.1,"observedAt":"2026-01-15T10:30:00Z"}' \
-  http://127.0.0.1:8080/api/results
-```
-
-I copy the returned `id` into the same read, correction, history and export routes. I can list recent results with `/api/results?patientId=SYN-002&limit=20`. The optional limit is 1 to 100, with 50 as the default, ordered by observation time from newest to oldest.
 
 ## What I accept
 
@@ -154,22 +112,9 @@ This is a local demonstration with synthetic data, not a system for patient care
 
 A database administrator can disable the audit trigger. The FHIR output is an R4 resource export, not a complete FHIR server or proof of conformance to a particular clinical profile. The bounded recent-results list does not page through an entire database.
 
-## Build and checks
+## Tests and limits
 
-For development I need a Java 21 JDK and a running Docker engine. The Maven wrapper downloads Maven, so a separate Maven installation is optional:
+I kept 5 files of test code and supporting test helpers in this copy. This is a file inventory, not an execution result. This is a source snapshot, and running it on a new machine may need environment-specific setup.
 
-```sh
-./mvnw -B verify
-```
 
-I run container checks on GitHub's Linux runners to keep build images off my
-Mac. For a small local check with Java 21 and no Docker, I use
-`./mvnw -B -Dtest=FhirExporterTest verify`.
-
-JUnit runs the same 23 integration cases on PostgreSQL 17, MySQL 8.4 and SQL Server 2022 containers, plus four FHIR tests. Each integration run applies the actual Flyway migrations. They cover access rules, invalid input, persistence, concurrent and stale corrections, audit immutability, rollback of both creation and correction after an audit failure, SQL metacharacters, timestamp and decimal precision, returned pool connections, and HAPI FHIR round trips. Docker is required; the database tests are not silently skipped. The demo script adds 11 HTTP checks against the packaged app. GitHub Actions runs separate PostgreSQL, MySQL and SQL Server jobs on pull requests and on `main`. Each packages the app and runs the 11-check Compose walkthrough for its database, then removes its containers and volumes.
-
-The deployment job applies Terraform against LocalStack and Moto, scans the
-exact app image for fixable high and critical vulnerabilities, and runs ten
-HTTP checks through the sandbox forwarding endpoint. Two more checks verify
-that the corrected value and history survive an app restart. See the deployment
-guide for the boundary between this free check and a real AWS deployment.
+Project checks run from this directory through the path-filtered hub workflows: `java-lab-results-service-ci.yml`.
